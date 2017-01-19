@@ -1,6 +1,8 @@
 package edu.stanford.nlp.sempre.tables.match;
 
 import java.util.*;
+import java.io.BufferedReader;
+import java.io.FileReader;
 
 import edu.stanford.nlp.sempre.*;
 import edu.stanford.nlp.sempre.FuzzyMatchFn.FuzzyMatchFnMode;
@@ -28,6 +30,8 @@ public class EditDistanceFuzzyMatcher extends FuzzyMatcher {
     public double fuzzyMatchMaxEditDistanceRatio = 0;
     @Option(gloss = "Allow the query phrase to match part of the table cell content")
     public boolean fuzzyMatchSubstring = false;
+    @Option(gloss = "Expand abbreviations while fuzzy matching")
+    public boolean expandAbbreviations = false;
     @Option(gloss = "Minimum query phrase length (number of characters) to invoke substring matching")
     public int fuzzyMatchSubstringMinQueryLength = 3;
     @Option(gloss = "If the number of cells matching the query exceeds this, don't return individual matches (but still return the union)")
@@ -41,6 +45,7 @@ public class EditDistanceFuzzyMatcher extends FuzzyMatcher {
 
   public EditDistanceFuzzyMatcher(TableKnowledgeGraph graph) {
     super(graph);
+    readAbbreviations();
     precompute();
   }
 
@@ -48,6 +53,7 @@ public class EditDistanceFuzzyMatcher extends FuzzyMatcher {
   phraseToEntityFormulas = new HashMap<>(),
   phraseToUnaryFormulas = new HashMap<>(),
   phraseToBinaryFormulas = new HashMap<>();
+  protected final Map<String, Set<String>> knownAbbreviations = new HashMap<>();
   protected final Map<String, Set<Formula>>
   substringToEntityFormulas = new HashMap<>(),
   substringToUnaryFormulas = new HashMap<>(),
@@ -56,6 +62,22 @@ public class EditDistanceFuzzyMatcher extends FuzzyMatcher {
   allEntityFormulas = new HashSet<>(),
   allUnaryFormulas = new HashSet<>(),
   allBinaryFormulas = new HashSet<>();
+
+  protected void readAbbreviations() {
+    String filePath = "data/abbreviations.tsv";
+    try {
+      BufferedReader abbreviationsFile = new BufferedReader(new FileReader(filePath));
+      String abbreviationLine = abbreviationsFile.readLine();
+      while (abbreviationLine != null) {
+        String[] lineParts = abbreviationLine.toLowerCase().split("\t");
+        // MapUtils.addToSet makes a list of values for each key.
+        MapUtils.addToSet(knownAbbreviations, getCanonicalCollapsedForm(lineParts[0]), getCanonicalCollapsedForm(lineParts[1]));
+        abbreviationLine = abbreviationsFile.readLine();
+      }
+    } catch (Exception e) {
+      e.printStackTrace();
+    }
+  }
 
   protected void precompute() {
     // unary and binary
@@ -70,7 +92,14 @@ public class EditDistanceFuzzyMatcher extends FuzzyMatcher {
         allBinaryFormulas.add(consecutive);
       if (normalizedBinaries != null)
         allBinaryFormulas.addAll(normalizedBinaries);
-      for (String s : getAllCollapsedForms(column.originalString)) {
+      Set<String> allForms = new HashSet<String>();
+      Collection<String> collapsedForms = getAllCollapsedForms(column.originalString);
+      allForms.addAll(collapsedForms);
+      if (opts.expandAbbreviations) {
+        for (String s: collapsedForms)
+          allForms.addAll(getAbbreviationExpansions(s));
+      }
+      for (String s : allForms) {
         MapUtils.addToSet(phraseToUnaryFormulas, s, unary);
         MapUtils.addToSet(phraseToBinaryFormulas, s, binary);
         if (consecutive != null)
@@ -80,7 +109,14 @@ public class EditDistanceFuzzyMatcher extends FuzzyMatcher {
             MapUtils.addToSet(phraseToBinaryFormulas, s, f);
       }
       if (opts.fuzzyMatchSubstring) {
-        for (String s : getAllSubstringCollapsedForms(column.originalString)) {
+        Set<String> substringForms = new HashSet<String>();
+        Collection<String> substringCollapsedForms = getAllSubstringCollapsedForms(column.originalString);
+        substringForms.addAll(substringCollapsedForms);
+        if (opts.expandAbbreviations) {
+          for (String substring: substringCollapsedForms)
+            substringForms.addAll(getAbbreviationExpansions(substring));
+        }
+        for (String s : substringForms) {
           MapUtils.addToSet(substringToUnaryFormulas, s, unary);
           MapUtils.addToSet(substringToBinaryFormulas, s, binary);
           if (consecutive != null)
@@ -95,10 +131,24 @@ public class EditDistanceFuzzyMatcher extends FuzzyMatcher {
     for (TableCellProperties properties : graph.cellProperties) {
       Formula entity = getEntityFormula(properties);
       allEntityFormulas.add(entity);
-      for (String s : getAllCollapsedForms(properties.originalString))
+      Set<String> allEntityForms = new HashSet<String>();
+      Collection<String> entityCollapsedForms = getAllCollapsedForms(properties.originalString);
+      allEntityForms.addAll(entityCollapsedForms);
+      if (opts.expandAbbreviations) {
+        for (String s: entityCollapsedForms)
+          allEntityForms.addAll(getAbbreviationExpansions(s));
+      }
+      for (String s : allEntityForms)
         MapUtils.addToSet(phraseToEntityFormulas, s, entity);
       if (opts.fuzzyMatchSubstring) {
-        for (String s : getAllSubstringCollapsedForms(properties.originalString)) {
+        Set<String> substringEntityForms = new HashSet<String>();
+        Collection<String> substringCollapsedForms = getAllSubstringCollapsedForms(properties.originalString);
+        substringEntityForms.addAll(substringCollapsedForms);
+        if (opts.expandAbbreviations) {
+          for (String s: substringCollapsedForms)
+            substringEntityForms.addAll(getAbbreviationExpansions(s));
+        }
+        for (String s : substringEntityForms) {
           MapUtils.addToSet(substringToEntityFormulas, s, entity);
         }
       }
@@ -108,7 +158,14 @@ public class EditDistanceFuzzyMatcher extends FuzzyMatcher {
       for (NameValue value : graph.cellParts) {
         Formula partEntity = getEntityFormula(value);
         allEntityFormulas.add(partEntity);
-        for (String s : getAllCollapsedForms(value.description))
+        Set<String> allPartEntityForms = new HashSet<String>();
+        Collection<String> collapsedPartEntityForms = getAllCollapsedForms(value.description);
+        allPartEntityForms.addAll(collapsedPartEntityForms);
+        if (opts.expandAbbreviations) {
+          for (String s: collapsedPartEntityForms)
+            allPartEntityForms.addAll(getAbbreviationExpansions(s));
+        }
+        for (String s : allPartEntityForms)
           MapUtils.addToSet(phraseToEntityFormulas, s, partEntity);
         if (opts.fuzzyMatchSubstring) {
           for (String s : getAllSubstringCollapsedForms(value.description)) {
@@ -163,6 +220,16 @@ public class EditDistanceFuzzyMatcher extends FuzzyMatcher {
     collapsedForms.add(StringNormalizationUtils.collapseNormalize(normalized));
     collapsedForms.remove("");
     return collapsedForms;
+  }
+
+  /**
+   * Check if the passed string is a known abbreviation, and expand it.
+   */
+  Collection<String> getAbbreviationExpansions(String original) {
+    Set<String> expandedForms = new HashSet<>();
+    if (knownAbbreviations.containsKey(original))
+      expandedForms.addAll(knownAbbreviations.get(original));
+    return expandedForms;
   }
 
   static String getCanonicalCollapsedForm(String original) {
@@ -378,9 +445,21 @@ public class EditDistanceFuzzyMatcher extends FuzzyMatcher {
   }
 
   protected Set<Formula> filterFuzzyMatched(String normalized, Map<String, Set<Formula>> phraseToFormulas) {
-    Set<Formula> filtered;
+    Set<Formula> filtered = new HashSet<Formula>();
+    filtered.addAll(filterFuzzyMatchedInternal(normalized, phraseToFormulas));
+    if (opts.expandAbbreviations) {
+      Collection<String> expansions = getAbbreviationExpansions(normalized);
+      for (String s: expansions)
+        filtered.addAll(filterFuzzyMatchedInternal(s, phraseToFormulas));
+    }
+    return filtered;
+  }
+
+  protected Set<Formula> filterFuzzyMatchedInternal(String normalized, Map<String, Set<Formula>> phraseToFormulas) {
+    Set<Formula> filtered = new HashSet<Formula>();
     if (opts.fuzzyMatchMaxEditDistanceRatio == 0) {
-      filtered = phraseToFormulas.get(normalized);
+      if (phraseToFormulas.containsKey(normalized))
+        filtered.addAll(phraseToFormulas.get(normalized));
     } else {
       filtered = new HashSet<>();
       for (Map.Entry<String, Set<Formula>> entry : phraseToFormulas.entrySet()) {
@@ -408,5 +487,12 @@ public class EditDistanceFuzzyMatcher extends FuzzyMatcher {
 
   public static void main(String[] args) {
     System.out.println(editDistance("unionist", "unionists"));
+    TableKnowledgeGraph graph = (TableKnowledgeGraph) KnowledgeGraph.fromLispTree(LispTree.proto.parseFromString("(graph tables.TableKnowledgeGraph lib/data/tables/csv/200-csv/0.csv)"));
+    FuzzyMatcher matcher = new EditDistanceFuzzyMatcher(graph);
+    Collection<Formula> formulas = matcher.getFuzzyMatchedFormulasInternal("united kingdom", FuzzyMatchFnMode.ENTITY);
+    System.out.println(formulas.size());
+    for (Formula formula: formulas) {
+        System.out.println(formula);
+    } 
   }
 }
