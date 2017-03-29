@@ -646,13 +646,14 @@ addMode('tables', 'QA on HTML tables', lambda { |e| l(
     'stats' => 'edu.stanford.nlp.sempre.tables.test.TableStatsComputer',
     'tag-data' => 'edu.stanford.nlp.sempre.tables.serialize.TaggedDatasetGenerator',
     'tag-table' => 'edu.stanford.nlp.sempre.tables.serialize.TaggedTableGenerator',
+    'tag-fuzzy' => 'edu.stanford.nlp.sempre.tables.serialize.TaggedFuzzyGenerator',
     'alter' => l('edu.stanford.nlp.sempre.tables.alter.BatchTableAlterer', let(:parser, 'serialized')),
     'alter-ex' => l('edu.stanford.nlp.sempre.tables.alter.AlteredTablesExecutor', let(:parser, 'serialized')),
     'filter' => 'edu.stanford.nlp.sempre.tables.serialize.DumpFilterer',
   }),
   # Fig parameters
   selo(:cldir, 'execDir', '_OUTPATH_', 'output'),
-  o('overwriteExecDir'), o('addToView', 11), o('jarFiles', 'libsempre/*'),
+  o('overwriteExecDir'), o('addToView', 13), o('jarFiles', 'libsempre/*'),
   sel(:cldir, l(), '>/dev/null'),
   # Set environment for table execution
   o('executor', 'tables.lambdadcs.LambdaDCSExecutor'),
@@ -702,7 +703,7 @@ addMode('tables', 'QA on HTML tables', lambda { |e| l(
       o('FloatingParser.betaReduce'), o('initialFloatingHasZeroDepth'),
     nil),
   }),
-  o('Parser.verbose', 1),
+  o('Parser.verbose', 0),
   letDefault(:pruning, 1),
   sel(:pruning,
     l(),
@@ -736,7 +737,7 @@ addMode('tables', 'QA on HTML tables', lambda { |e| l(
   o('FeatureVector.ignoreZeroWeight'),
   o('maxPrintedPredictions', 10), o('maxPrintedTrue', 10), o('logFeaturesLimit', 10),
   o('LambdaDCSException.noErrorMessage'),
-  letDefault(:verbose, 2),
+  letDefault(:verbose, 0),
   sel(:verbose,
     l(),
     l(
@@ -796,7 +797,7 @@ addMode('tables', 'QA on HTML tables', lambda { |e| l(
       o('FeatureExtractor.featureComputers', 'tables.features.PhrasePredicateFeatureComputer tables.features.PhraseDenotationFeatureComputer'.split),
     nil),
     'all' => l(      # All features
-      o('FeatureExtractor.featureDomains', 'custom-denotation phrase-predicate phrase-denotation headword-denotation missing-predicate'.split),
+      o('FeatureExtractor.featureDomains', 'custom-denotation phrase-predicate phrase-denotation headword-denotation'.split),
       o('FeatureExtractor.featureComputers', 'tables.features.PhrasePredicateFeatureComputer tables.features.PhraseDenotationFeatureComputer'.split),
     nil),
     'all-fragment' => l(
@@ -824,7 +825,6 @@ addMode('tables', 'QA on HTML tables', lambda { |e| l(
     'none' => l(),
     'careful' => l(
       o('maxNforLexicalizeAllPairs', 2),
-      o('lookUnderCellProperty'), o('useGenericCellType'),
       o('computeFuzzyMatchPredicates'),
     nil),
   }),
@@ -871,6 +871,12 @@ def tablesGrammarPaths
           o('Grammar.tags', *'scoped merge-and arithmetic comparison alternative neq yearrange part closedclass scoped-2args-merge-and'.split),
           let(:anchor, 2),
         nil),
+        'grow-strict' => l(
+          o('Grammar.inPaths', "#{baseDir}grow.grammar"),
+          o('Grammar.binarizeRules', false),
+          o('Grammar.tags', *'scoped merge-and arithmetic comparison alternative neq yearrange part closedclass-generic scoped-2args-merge-and'.split),
+          let(:anchor, 2),
+        nil),
       }),
     nil)
   }
@@ -878,8 +884,8 @@ end
 
 def tablesDataPaths
   lambda { |e|
-    baseDir = ['lib/data/tables/data/', 'WikiTableQuestions/data/'][e[:cldir]]
-    csvDir = ['lib/data/tables/', 'WikiTableQuestions/'][e[:cldir]]
+    baseDir = ['lib/data/WikiTableQuestions/data/', 'WikiTableQuestions/data/'][e[:cldir]]
+    csvDir = ['lib/data/WikiTableQuestions/', 'WikiTableQuestions/'][e[:cldir]]
     datasets = {
       'none' => l(),
       'train' => o('Dataset.inPaths', "train,#{baseDir}training.examples"),
@@ -902,7 +908,7 @@ def tablesDataPaths
     end
     # That's it!
     l(
-      o('splitDevFromTrain', false),
+      #o('splitDevFromTrain', false),
       o('TableKnowledgeGraph.baseCSVDir', csvDir),
       sel(:data, datasets),
     nil)
